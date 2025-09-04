@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Ocean King 3 Predictor</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; }
+    canvas, video { border: 1px solid black; }
+    #status { font-size: 1.5em; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Ocean King 3 Predictor</h1>
+  <video id="video" width="640" height="480" autoplay muted></video><br />
+  <canvas id="canvas" width="640" height="480"></canvas>
+  <div id="status">Status: Waiting...</div>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const statusDiv = document.getElementById('status');
+
+    // Request camera access
+    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+      video.srcObject = stream;
+      video.play();
+    }).catch(err => {
+      alert('Could not access camera: ' + err);
+    });
+
+    function detectBluePixels(frame) {
+      let bluePixels = 0;
+      const data = frame.data;
+      for(let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+
+        // Simple blue detection condition - tweak thresholds as needed
+        if(b > 100 && b > r * 1.5 && b > g * 1.5) {
+          bluePixels++;
+          // Highlight pixel blue in canvas (optional)
+          data[i] = 0;
+          data[i + 1] = 0;
+          data[i + 2] = 255;
+        }
+      }
+      return bluePixels;
+    }
+
+    function processFrame() {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      let frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      const blueCount = detectBluePixels(frame);
+
+      ctx.putImageData(frame, 0, 0);
+
+      // Simple heuristic for “hot” mode
+      if(blueCount > 10000) {
+        statusDiv.textContent = "🔥 HOT! High chance to win!";
+        statusDiv.style.color = "red";
+      } else {
+        statusDiv.textContent = "❄️ Cold period. Keep watching.";
+        statusDiv.style.color = "blue";
+      }
+
+      requestAnimationFrame(processFrame);
+    }
+
+    video.addEventListener('play', () => {
+      processFrame();
+    });
+  </script>
+</body>
+</html>

@@ -2,132 +2,104 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Ocean King 3 Multi-Detector</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Name Detector (Object Recognition)</title>
   <style>
     body {
+      margin: 0;
+      overflow: hidden;
       font-family: Arial, sans-serif;
-      text-align: center;
-      background-color: #111;
-      color: white;
-      margin: 0;
-      padding: 0;
+      background: #000;
+      color: #fff;
     }
-    h1 {
-      background-color: #222;
-      padding: 20px;
-      margin: 0;
+    #video {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      z-index: 1;
     }
-    video, canvas {
-      border: 1px solid #444;
-      margin-top: 10px;
-      max-width: 100%;
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 2;
     }
-    #status {
-      font-size: 1.6em;
-      margin: 20px;
-      font-weight: bold;
+    #loading {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      background: rgba(0,0,0,0.7);
+      padding: 10px 15px;
+      border-radius: 5px;
+      z-index: 3;
     }
   </style>
 </head>
 <body>
-  <h1>Ocean King 3 Multi-Detector</h1>
-  <video id="video" width="640" height="480" autoplay playsinline muted></video>
-  <canvas id="canvas" width="640" height="480"></canvas>
-  <div id="status">Status: Initializing...</div>
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  <div id="loading">Loading model...</div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
   <script>
     const video = document.getElementById('video');
     const canvas = document.getElementById('canvas');
     const ctx = canvas.getContext('2d');
-    const statusDiv = document.getElementById('status');
+    const loadingText = document.getElementById('loading');
 
-    // Use the back camera if possible
-    navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" } },
-      audio: false
-    })
-    .then(stream => {
+    async function setupCamera() {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+        audio: false
+      });
       video.srcObject = stream;
+      return new Promise(resolve => {
+        video.onloadedmetadata = () => {
+          resolve(video);
+        };
+      });
+    }
+
+    async function main() {
+      await setupCamera();
       video.play();
-    })
-    .catch(err => {
-      console.error("Camera error:", err);
-      statusDiv.textContent = "❌ Cannot access camera: " + err;
-    });
 
-    function detectColors(frame) {
-      let blue = 0, green = 0, red = 0, yellow = 0;
-      const data = frame.data;
+      // Adjust canvas size
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
 
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i];
-        const g = data[i + 1];
-        const b = data[i + 2];
+      // Load model
+      const model = await cocoSsd.load();
+      loadingText.innerText = "Model loaded. Detecting...";
 
-        // Detect Blue (e.g., bullets)
-        if (b > 100 && b > r * 1.5 && b > g * 1.5) {
-          blue++;
-          data[i] = 0;
-          data[i + 1] = 0;
-          data[i + 2] = 255;
-        }
+      async function detectFrame() {
+        const predictions = await model.detect(video);
 
-        // Detect Green (e.g., fish)
-        else if (g > 100 && g > r * 1.5 && g > b * 1.5) {
-          green++;
-          data[i] = 0;
-          data[i + 1] = 255;
-          data[i + 2] = 0;
-        }
+        // Clear canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        // Detect Red (e.g., bosses)
-        else if (r > 120 && r > g * 1.5 && r > b * 1.5) {
-          red++;
-          data[i] = 255;
-          data[i + 1] = 0;
-          data[i + 2] = 0;
-        }
+        predictions.forEach(prediction => {
+          const [x, y, width, height] = prediction.bbox;
+          ctx.strokeStyle = '#00FFFF';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x, y, width, height);
 
-        // Detect Yellow (e.g., coins or payout)
-        else if (r > 120 && g > 120 && b < 80) {
-          yellow++;
-          data[i] = 255;
-          data[i + 1] = 255;
-          data[i + 2] = 0;
-        }
+          ctx.fillStyle = '#00FFFF';
+          ctx.font = '18px Arial';
+          ctx.fillText(`${prediction.class} (${(prediction.score * 100).toFixed(1)}%)`, x, y > 20 ? y - 5 : y + 20);
+        });
+
+        requestAnimationFrame(detectFrame);
       }
 
-      return { blue, green, red, yellow };
+      detectFrame();
     }
 
-    function processFrame() {
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-        const { blue, green, red, yellow } = detectColors(frame);
-        ctx.putImageData(frame, 0, 0);
-
-        // Show counts and prediction logic
-        let statusMsg = `🔵 Bullets: ${blue} | 🟢 Fish: ${green} | 🔴 Bosses: ${red} | 🟡 Coins: ${yellow}`;
-
-        if (blue > 10000 || red > 2000 || yellow > 1000) {
-          statusMsg += " — 🔥 HOT!";
-          statusDiv.style.color = "lime";
-        } else {
-          statusMsg += " — ❄️ Cold";
-          statusDiv.style.color = "skyblue";
-        }
-
-        statusDiv.textContent = statusMsg;
-      }
-
-      requestAnimationFrame(processFrame);
-    }
-
-    video.addEventListener('play', () => {
-      processFrame();
-    });
+    main();
   </script>
 </body>
 </html>
